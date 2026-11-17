@@ -1,0 +1,57 @@
+# Hisab APK — cloud build on GitHub Actions.
+#
+# Why this exists: `flutter build apk` cannot run in the Muse VM right now.
+# The Gradle daemon needs localhost TCP, and Java processes in this VM
+# cannot make TCP connections even to localhost (the known-good
+# couple-tap-app fails the exact same way now), so every local retry dies
+# with "The first result from the daemon was empty". The code itself is
+# fine — `flutter analyze` clean, `flutter test` 5/5 pass.
+#
+# This workflow builds the same code on GitHub's runner instead, where
+# Gradle runs normally. No secrets needed: the app has no Firebase yet,
+# and the release build signs with the debug keys (same as the Tumi Ami
+# APKs, which installed fine).
+#
+# How Toha runs it (after the code is pushed to a GitHub repo):
+#   1. GitHub repo page -> Actions tab -> "Build Hisab APK" -> Run workflow
+#   2. Wait ~5-10 minutes for the green check
+#   3. Open the finished run -> Artifacts -> download "hisab-apk"
+#   4. Unzip on the phone, install app-release.apk (installs like Tumi Ami)
+#
+# It also runs automatically on every push to main.
+name: Build Hisab APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.35.7"
+
+      - name: Restore binary files (icons + Gradle wrapper jar)
+        run: bash github-binaries/restore.sh
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hisab-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
